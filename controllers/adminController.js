@@ -1,0 +1,186 @@
+const TestService = require('../services/testService');
+const ResultService = require('../services/resultService');
+const AnalyticsService = require('../services/analyticsService');
+const User = require('../models/User');
+const { handleError } = require('../middleware/errorHandler');
+const messages = require('../utils/messages');
+
+const createTest = async (req, res) => {
+  try {
+    const processedData = {
+      ...req.body,
+      questionUids: req.body.questionUids || [], // Now using question UIDs instead of full questions
+      createdBy: req.user._id
+    };
+
+    const test = await TestService.createTest(processedData);
+    
+    // Populate questions for response
+    const testWithQuestions = await TestService.getTestWithFullQuestions(test._id);
+    
+    res.status(201).json({
+      message: messages.en.testCreated,
+      test: testWithQuestions
+    });
+  } catch (error) {
+    console.error('Test creation error:', error);
+    handleError(res, error, messages.en.serverError);
+  }
+};
+
+const getTests = async (req, res) => {
+  try {
+    const tests = await TestService.getTestsByCreator(req.user._id);
+    res.json(tests);
+  } catch (error) {
+    handleError(res, error, messages.en.serverError);
+  }
+};
+
+const updateTest = async (req, res) => {
+  try {
+    const test = await TestService.updateTest(req.params.id, req.body);
+    if (!test) {
+      return res.status(404).json({ message: messages.en.testNotFound });
+    }
+
+    // Populate questions for response
+    const testWithQuestions = await TestService.getTestWithFullQuestions(test._id);
+
+    res.json({
+      message: messages.en.testUpdated,
+      test: testWithQuestions
+    });
+  } catch (error) {
+    handleError(res, error, messages.en.serverError);
+  }
+};
+
+const deleteTest = async (req, res) => {
+  try {
+    const test = await TestService.deleteTest(req.params.id);
+    if (!test) {
+      return res.status(404).json({ message: messages.en.testNotFound });
+    }
+
+    res.json({ message: messages.en.testDeleted });
+  } catch (error) {
+    handleError(res, error, messages.en.serverError);
+  }
+};
+
+const getTestResults = async (req, res) => {
+  try {
+    const results = await ResultService.getTestResults(req.params.testId);
+    const resultsWithRanking = await ResultService.calculateRankings(results);
+
+    res.json(resultsWithRanking);
+  } catch (error) {
+    handleError(res, error, messages.en.serverError);
+  }
+};
+
+const getTestAnalytics = async (req, res) => {
+  try {
+    const analytics = await AnalyticsService.getTestAnalytics(req.params.testId);
+    res.json(analytics);
+  } catch (error) {
+    handleError(res, error, messages.en.serverError);
+  }
+};
+
+const getAllResults = async (req, res) => {
+  try {
+    const results = await Result.find()
+      .populate('test', 'title startTime duration')
+      .populate('student', 'fullName email')
+      .sort({ submittedAt: -1 });
+
+    const resultsWithPercentage = results.map(result => ({
+      ...result.toObject(),
+      percentage: result.totalMarks > 0 ? ((result.score / result.totalMarks) * 100).toFixed(2) : 0
+    }));
+
+    res.json(resultsWithPercentage);
+  } catch (error) {
+    handleError(res, error, messages.en.serverError);
+  }
+};
+
+const getPlatformStatistics = async (req, res) => {
+  try {
+    const statistics = await AnalyticsService.getPlatformStatistics();
+    res.json(statistics);
+  } catch (error) {
+    handleError(res, error, messages.en.serverError);
+  }
+};
+
+const getStudents = async (req, res) => {
+  try {
+    const students = await User.find({ role: 'student' })
+      .select('fullName email phone createdAt')
+      .sort({ createdAt: -1 });
+    
+    res.json(students);
+  } catch (error) {
+    handleError(res, error, messages.en.serverError);
+  }
+};
+
+const updateUserType = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { type } = req.body;
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { type },
+      { new: true, runValidators: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.json({
+      message: 'User type updated successfully',
+      user: user.toJSON()
+    });
+  } catch (error) {
+    handleError(res, error, messages.en.serverError);
+  }
+};
+
+const getUsersByType = async (req, res) => {
+  try {
+    const { type } = req.query;
+    
+    const filter = { role: 'student' };
+    if (type) {
+      filter.type = type;
+    }
+
+    const users = await User.find(filter)
+      .select('fullName email phone type createdAt')
+      .sort({ createdAt: -1 });
+
+    res.json(users);
+  } catch (error) {
+    handleError(res, error, messages.en.serverError);
+  }
+};
+
+module.exports = {
+  createTest,
+  getTests,
+  updateTest,
+  deleteTest,
+  getTestResults,
+  getTestAnalytics,
+  getAllResults,
+  getPlatformStatistics,
+  getStudents,
+  updateUserType,
+  getUsersByType
+};
